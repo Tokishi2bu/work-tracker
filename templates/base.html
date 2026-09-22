@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Work Tracker{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="statusbar">
+        <div class="statusbar-inner">
+            <div class="brand">
+                <span class="pulse-dot" aria-hidden="true"></span>
+                <span class="brand-text">Work Tracker</span>
+            </div>
+            <div class="statusbar-right">
+                <span class="statusbar-clock" id="live-clock">--:--:--</span>
+            </div>
+        </div>
+        <div class="statusbar-edge"></div>
+    </header>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-stack" id="flash-stack">
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}" data-category="{{ category }}">{{ message }}</div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <div id="error-modal" class="modal-overlay hidden">
+        <div class="modal modal-error">
+            <div class="modal-error-head">
+                <span class="modal-error-mark">!</span>
+                <h2 class="panel-title">Import couldn't be completed</h2>
+            </div>
+            <p id="error-modal-body" class="error-modal-body"></p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" id="close-error-modal">Got it</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <span>Work Tracker &middot; personal work-activity log</span>
+    </footer>
+
+    <script>
+        function updateClock() {
+            const now = new Date();
+            const el = document.getElementById('live-clock');
+            if (el) el.textContent = now.toLocaleTimeString([], { hour12: false });
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const errorFlash = document.querySelector('.flash-error');
+            if (errorFlash) {
+                const modal = document.getElementById('error-modal');
+                document.getElementById('error-modal-body').textContent = errorFlash.textContent;
+                modal.classList.remove('hidden');
+                errorFlash.style.display = 'none';
+            }
+            const closeBtn = document.getElementById('close-error-modal');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function () {
+                    document.getElementById('error-modal').classList.add('hidden');
+                });
+            }
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

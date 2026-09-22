@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: work-tracker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DB_PATH
+        value: /var/data/worktracker.db
+    disk:
+      name: work-tracker-data
+      mountPath: /var/data
+      sizeGB: 1

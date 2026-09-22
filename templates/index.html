@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Work Tracker — Dashboard{% endblock %}
+
+{% block content %}
+
+<section class="stats-row">
+    <a class="stat-card {{ 'active' if status_filter == 'All' else '' }}" href="{{ url_for('index', status='All', q=search, sort=sort, date=date_filter, month=month_filter) }}">
+        <div class="stat-num">{{ counts['All'] }}</div>
+        <div class="stat-label">All tasks</div>
+    </a>
+    {% for s in statuses %}
+    <a class="stat-card status-{{ s|replace(' ', '')|lower }} {{ 'active' if status_filter == s else '' }}"
+       href="{{ url_for('index', status=s, q=search, sort=sort, date=date_filter, month=month_filter) }}">
+        <div class="stat-num">{{ counts[s] }}</div>
+        <div class="stat-label">{{ s }}</div>
+    </a>
+    {% endfor %}
+</section>
+
+<section class="panel data-panel">
+    <h2 class="panel-title">Import &amp; export</h2>
+    <p class="panel-sub">Data moves in and out through one locked template — five columns, no more, no fewer.</p>
+    <div class="data-actions">
+        <a class="btn btn-outline" href="{{ url_for('download_template') }}">Download template</a>
+        <a class="btn btn-outline" href="{{ url_for('export_excel') }}">Export to Excel</a>
+        <form action="{{ url_for('import_excel') }}" method="POST" enctype="multipart/form-data" class="import-form">
+            <label for="import-file" class="file-picker">
+                <span id="file-picker-label">Choose .xlsx file</span>
+            </label>
+            <input type="file" id="import-file" name="file" accept=".xlsx,.xlsm" hidden>
+            <button type="submit" class="btn btn-primary">Import</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel add-panel">
+    <h2 class="panel-title">Log new activity</h2>
+    <form action="{{ url_for('add_task') }}" method="POST" class="task-form">
+        <div class="form-row">
+            <div class="field field-grow">
+                <label for="name">Task name</label>
+                <input type="text" id="name" name="name" placeholder="e.g. Patch APEX ORDS module" required>
+            </div>
+            <div class="field">
+                <label for="task_date">Date</label>
+                <input type="date" id="task_date" name="task_date" value="{{ today }}">
+            </div>
+            <div class="field">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                    {% for s in statuses %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="field field-grow">
+                <label for="summary">Summary</label>
+                <input type="text" id="summary" name="summary" placeholder="One-line summary">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="field field-grow">
+                <label for="details">Details</label>
+                <textarea id="details" name="details" rows="2" placeholder="Full notes, steps taken, blockers, links..."></textarea>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Add task</button>
+        </div>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2 class="panel-title">Task log</h2>
+        <form class="toolbar" method="GET" action="{{ url_for('index') }}">
+            <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="text" name="q" value="{{ search }}" placeholder="Search tasks..." class="search-input">
+            <select name="sort" onchange="this.form.submit()">
+                <option value="date_desc" {{ 'selected' if sort == 'date_desc' }}>New to old</option>
+                <option value="date_asc" {{ 'selected' if sort == 'date_asc' }}>Old to new</option>
+                <option value="name_asc" {{ 'selected' if sort == 'name_asc' }}>Name A-Z</option>
+                <option value="status" {{ 'selected' if sort == 'status' }}>By status</option>
+            </select>
+            <div class="toolbar-filter">
+                <label for="date-filter">Date</label>
+                <input type="date" id="date-filter" name="date" value="{{ date_filter }}">
+            </div>
+            <div class="toolbar-filter">
+                <label for="month-filter">Month</label>
+                <input type="month" id="month-filter" name="month" value="{{ month_filter }}">
+            </div>
+            <button type="submit" class="btn btn-secondary">Filter</button>
+            {% if search or status_filter != 'All' or date_filter or month_filter %}
+            <a href="{{ url_for('index') }}" class="btn btn-ghost">Reset</a>
+            {% endif %}
+        </form>
+    </div>
+
+    {% if tasks|length == 0 %}
+    <div class="empty-state">No tasks logged yet. Add one above, or import from Excel.</div>
+    {% else %}
+    <div class="table-wrap">
+        <table class="task-table">
+            <thead>
+                <tr>
+                    <th class="col-name">Name</th>
+                    <th class="col-summary">Summary</th>
+                    <th class="col-details">Details</th>
+                    <th class="col-date">Date</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tasks %}
+                <tr data-id="{{ t.id }}">
+                    <td class="col-name"><strong>{{ t.name }}</strong></td>
+                    <td class="col-summary">{{ t.summary or '—' }}</td>
+                    <td class="col-details">
+                        {% if t.details %}
+                        <span class="details-preview">{{ t.details[:60] }}{% if t.details|length > 60 %}…{% endif %}</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="col-date mono">{{ t.task_date }}</td>
+                    <td class="col-status">
+                        <select class="status-select status-select-{{ t.status|replace(' ', '')|lower }}" data-id="{{ t.id }}">
+                            {% for s in statuses %}
+                            <option value="{{ s }}" {{ 'selected' if s == t.status }}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="col-actions">
+                        <div class="action-row">
+                            <button class="icon-btn edit-btn"
+                                data-id="{{ t.id }}"
+                                data-name="{{ t.name }}"
+                                data-summary="{{ t.summary or '' }}"
+                                data-details="{{ t.details or '' }}"
+                                data-date="{{ t.task_date }}"
+                                data-status="{{ t.status }}"
+                                title="Edit">Edit</button>
+                            <form action="{{ url_for('delete_task', task_id=t.id) }}" method="POST" class="inline-form"
+                                  onsubmit="return confirm('Delete this task?');">
+                                <button type="submit" class="icon-btn delete-btn" title="Delete">Delete</button>
+                            </form>
+                        </div>
+                        <button type="button" class="icon-btn view-btn"
+                            data-name="{{ t.name }}"
+                            data-summary="{{ t.summary or '' }}"
+                            data-details="{{ t.details or '' }}"
+                            data-date="{{ t.task_date }}"
+                            data-status="{{ t.status }}"
+                            title="View">View</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</section>
+
+<div id="edit-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2 class="panel-title">Edit task</h2>
+        <form id="edit-form" method="POST">
+            <div class="form-row">
+                <div class="field field-grow">
+                    <label for="edit-name">Task name</label>
+                    <input type="text" id="edit-name" name="name" required>
+                </div>
+                <div class="field">
+                    <label for="edit-date">Date</label>
+                    <input type="date" id="edit-date" name="task_date">
+                </div>
+                <div class="field">
+                    <label for="edit-status">Status</label>
+                    <select id="edit-status" name="status">
+                        {% for s in statuses %}
+                        <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="field field-grow">
+                    <label for="edit-summary">Summary</label>
+                    <input type="text" id="edit-summary" name="summary">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="field field-grow">
+                    <label for="edit-details">Details</label>
+                    <textarea id="edit-details" name="details" rows="4"></textarea>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-ghost" id="cancel-edit">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="view-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2 class="panel-title" id="view-modal-title">Task details</h2>
+
+        <div class="view-field">
+            <span class="view-label">Summary</span>
+            <p id="view-modal-summary" class="view-value"></p>
+        </div>
+
+        <div class="view-field">
+            <span class="view-label">Details</span>
+            <p id="view-modal-details" class="view-value view-details-body"></p>
+        </div>
+
+        <div class="view-field-row">
+            <div class="view-field">
+                <span class="view-label">Date</span>
+                <p id="view-modal-date" class="view-value mono"></p>
+            </div>
+            <div class="view-field">
+                <span class="view-label">Status</span>
+                <p id="view-modal-status" class="view-value"></p>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="button" class="btn btn-ghost" id="close-view">Close</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// File picker label
+const fileInput = document.getElementById('import-file');
+const fileLabel = document.getElementById('file-picker-label');
+if (fileInput) {
+    fileInput.addEventListener('change', function () {
+        fileLabel.textContent = this.files.length ? this.files[0].name : 'Choose .xlsx file';
+    });
+}
+
+// Date and month filters are mutually exclusive
+const dateFilterInput = document.getElementById('date-filter');
+const monthFilterInput = document.getElementById('month-filter');
+if (dateFilterInput && monthFilterInput) {
+    dateFilterInput.addEventListener('input', function () {
+        if (this.value) monthFilterInput.value = '';
+    });
+    monthFilterInput.addEventListener('input', function () {
+        if (this.value) dateFilterInput.value = '';
+    });
+}
+
+// Inline status update
+document.querySelectorAll('.status-select').forEach(function(sel) {
+    sel.addEventListener('change', function() {
+        const id = this.dataset.id;
+        const status = this.value;
+        fetch(`/task/${id}/status`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `status=${encodeURIComponent(status)}`
+        }).then(res => res.json()).then(data => {
+            if (data.ok) {
+                this.className = 'status-select status-select-' + status.replace(' ', '').toLowerCase();
+            } else {
+                alert('Could not update status.');
+            }
+        });
+    });
+});
+
+// View task modal — shows the full row clearly
+const viewModal = document.getElementById('view-modal');
+document.querySelectorAll('.view-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        document.getElementById('view-modal-title').textContent = this.dataset.name;
+        document.getElementById('view-modal-summary').textContent = this.dataset.summary || '—';
+        document.getElementById('view-modal-details').textContent = this.dataset.details || '—';
+        document.getElementById('view-modal-date').textContent = this.dataset.date;
+        document.getElementById('view-modal-status').textContent = this.dataset.status;
+        viewModal.classList.remove('hidden');
+    });
+});
+document.getElementById('close-view').addEventListener('click', function() {
+    viewModal.classList.add('hidden');
+});
+viewModal.addEventListener('click', function(e) {
+    if (e.target === viewModal) viewModal.classList.add('hidden');
+});
+
+// Edit modal
+const modal = document.getElementById('edit-modal');
+const editForm = document.getElementById('edit-form');
+
+document.querySelectorAll('.edit-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        const id = this.dataset.id;
+        document.getElementById('edit-name').value = this.dataset.name;
+        document.getElementById('edit-summary').value = this.dataset.summary;
+        document.getElementById('edit-details').value = this.dataset.details;
+        document.getElementById('edit-date').value = this.dataset.date;
+        document.getElementById('edit-status').value = this.dataset.status;
+        editForm.action = `/task/${id}/edit`;
+        modal.classList.remove('hidden');
+    });
+});
+
+document.getElementById('cancel-edit').addEventListener('click', function() {
+    modal.classList.add('hidden');
+});
+modal.addEventListener('click', function(e) {
+    if (e.target === modal) modal.classList.add('hidden');
+});
+</script>
+{% endblock %}
