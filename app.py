@@ -14,6 +14,16 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "worktracker.db"))
 
+# If DATABASE_URL is set (e.g. Render's free PostgreSQL), use Postgres.
+# Otherwise fall back to a local SQLite file — this keeps local development
+# and Windows testing exactly as before, with zero extra setup.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+
 STATUS_OPTIONS = ["Yet to Start", "WIP", "Done"]
 
 # Exact column contract for import/export. Order and names are locked —
@@ -21,37 +31,78 @@ STATUS_OPTIONS = ["Yet to Start", "WIP", "Done"]
 EXPECTED_COLUMNS = ["Name", "Summary", "Details", "Date", "Status"]
 
 
+class PGConnection:
+    """Thin wrapper so Postgres can be used with the same conn.execute(...)
+    style calls as sqlite3.Connection, without touching every route."""
+
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def execute(self, query, params=()):
+        cur = self._conn.cursor()
+        cur.execute(query.replace("?", "%s"), params)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    if USE_POSTGRES:
+        url = DATABASE_URL
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        raw_conn = psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
+        return PGConnection(raw_conn)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
 
 
 def init_db():
     conn = get_db()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            summary TEXT,
-            details TEXT,
-            task_date TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'Yet to Start',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+    if USE_POSTGRES:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                summary TEXT,
+                details TEXT,
+                task_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Yet to Start',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                summary TEXT,
+                details TEXT,
+                task_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Yet to Start',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
     conn.commit()
     conn.close()
 
 
-@app.before_request
-def ensure_db():
-    if not os.path.exists(DB_PATH):
-        init_db()
+# Create the table on startup — works whether this module is imported by
+# gunicorn (Render) or run directly with `python app.py` (local/Windows).
+init_db()
 
 
 def row_to_dict(row):

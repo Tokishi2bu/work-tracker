@@ -1,7 +1,16 @@
+# Free-tier blueprint: a free web service backed by a free Postgres database
+# instead of a paid persistent disk. Free Postgres on Render expires 30 days
+# after creation (14-day grace period) — see README.md for the backup/restore
+# workflow using this app's own Export/Import-to-Excel feature.
+#
+# This file is optional — you can also create both resources manually from
+# the Render dashboard (New + > PostgreSQL, then New + > Web Service) if you
+# prefer not to use Blueprint deploys. See README.md for those exact steps.
 services:
   - type: web
     name: work-tracker
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
@@ -9,9 +18,11 @@ services:
         generateValue: true
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: DB_PATH
-        value: /var/data/worktracker.db
-    disk:
-      name: work-tracker-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: DATABASE_URL
+        fromDatabase:
+          name: work-tracker-db
+          property: connectionString
+
+databases:
+  - name: work-tracker-db
+    plan: free
