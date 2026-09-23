@@ -3,19 +3,35 @@
 
 {% block content %}
 
-<section class="stats-row">
-    <a class="stat-card {{ 'active' if status_filter == 'All' else '' }}" href="{{ url_for('index', status='All', q=search, sort=sort, date=date_filter, month=month_filter) }}">
-        <div class="stat-num">{{ counts['All'] }}</div>
-        <div class="stat-label">All tasks</div>
+<section class="view-tabs">
+    <a class="view-tab {{ 'active' if view == 'active' }}"
+       href="{{ url_for('index', view='active', q=search, sort=sort, date=date_filter, month=month_filter) }}">
+        Active tasks
+        <span class="view-tab-count">{{ counts['active'] }}</span>
     </a>
-    {% for s in statuses %}
-    <a class="stat-card status-{{ s|replace(' ', '')|lower }} {{ 'active' if status_filter == s else '' }}"
-       href="{{ url_for('index', status=s, q=search, sort=sort, date=date_filter, month=month_filter) }}">
+    <a class="view-tab {{ 'active' if view == 'completed' }}"
+       href="{{ url_for('index', view='completed', q=search, sort=sort, date=date_filter, month=month_filter) }}">
+        Completed
+        <span class="view-tab-count">{{ counts['Done'] }}</span>
+    </a>
+</section>
+
+{% if view == 'active' %}
+<section class="stats-row">
+    {% for s in active_statuses %}
+    <a class="stat-card status-{{ s|replace(' ', '')|lower }} {{ 'active' if checked_statuses == [s] }}"
+       href="{{ url_for('index', view='active', status=[s], q=search, sort=sort, date=date_filter, month=month_filter) }}">
         <div class="stat-num">{{ counts[s] }}</div>
         <div class="stat-label">{{ s }}</div>
     </a>
     {% endfor %}
+    <a class="stat-card status-alltasks {{ 'active' if checked_statuses|length == active_statuses|length }}"
+       href="{{ url_for('index', view='active', q=search, sort=sort, date=date_filter, month=month_filter) }}">
+        <div class="stat-num">{{ counts['active'] }}</div>
+        <div class="stat-label">Both</div>
+    </a>
 </section>
+{% endif %}
 
 <section class="panel data-panel">
     <h2 class="panel-title">Import &amp; export</h2>
@@ -74,9 +90,9 @@
 
 <section class="panel">
     <div class="panel-header">
-        <h2 class="panel-title">Task log</h2>
+        <h2 class="panel-title">{{ 'Active task log' if view == 'active' else 'Completed tasks' }}</h2>
         <form class="toolbar" method="GET" action="{{ url_for('index') }}">
-            <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="hidden" name="view" value="{{ view }}">
             <input type="text" name="q" value="{{ search }}" placeholder="Search tasks..." class="search-input">
             <select name="sort" onchange="this.form.submit()">
                 <option value="date_desc" {{ 'selected' if sort == 'date_desc' }}>New to old</option>
@@ -84,6 +100,20 @@
                 <option value="name_asc" {{ 'selected' if sort == 'name_asc' }}>Name A-Z</option>
                 <option value="status" {{ 'selected' if sort == 'status' }}>By status</option>
             </select>
+
+            {% if view == 'active' %}
+            <div class="status-checks">
+                {% for s in active_statuses %}
+                <label class="status-check">
+                    <input type="checkbox" name="status" value="{{ s }}"
+                        {{ 'checked' if s in checked_statuses }}
+                        onchange="this.form.submit()">
+                    {{ s }}
+                </label>
+                {% endfor %}
+            </div>
+            {% endif %}
+
             <div class="toolbar-filter">
                 <label for="date-filter">Date</label>
                 <input type="date" id="date-filter" name="date" value="{{ date_filter }}">
@@ -93,14 +123,20 @@
                 <input type="month" id="month-filter" name="month" value="{{ month_filter }}">
             </div>
             <button type="submit" class="btn btn-secondary">Filter</button>
-            {% if search or status_filter != 'All' or date_filter or month_filter %}
-            <a href="{{ url_for('index') }}" class="btn btn-ghost">Reset</a>
+            {% if search or date_filter or month_filter or (view == 'active' and checked_statuses|length < active_statuses|length) %}
+            <a href="{{ url_for('index', view=view) }}" class="btn btn-ghost">Reset</a>
             {% endif %}
         </form>
     </div>
 
     {% if tasks|length == 0 %}
-    <div class="empty-state">No tasks logged yet. Add one above, or import from Excel.</div>
+    <div class="empty-state">
+        {% if view == 'completed' %}
+        No completed tasks yet. Mark a task's status as Done and it'll land here.
+        {% else %}
+        No active tasks logged yet. Add one above, or import from Excel.
+        {% endif %}
+    </div>
     {% else %}
     <div class="table-wrap">
         <table class="task-table">
@@ -114,7 +150,7 @@
                     <th class="col-actions">Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="task-tbody">
                 {% for t in tasks %}
                 <tr data-id="{{ t.id }}">
                     <td class="col-name"><strong>{{ t.name }}</strong></td>
@@ -240,6 +276,8 @@
 
 {% block scripts %}
 <script>
+const CURRENT_VIEW = "{{ view }}";
+
 // File picker label
 const fileInput = document.getElementById('import-file');
 const fileLabel = document.getElementById('file-picker-label');
@@ -261,21 +299,30 @@ if (dateFilterInput && monthFilterInput) {
     });
 }
 
-// Inline status update
+// Inline status update. If the new status crosses the Active/Completed
+// boundary (Done <-> not-Done) while viewing the tab that task would leave,
+// reload so it moves to the correct tab. Otherwise just repaint the pill.
 document.querySelectorAll('.status-select').forEach(function(sel) {
     sel.addEventListener('change', function() {
         const id = this.dataset.id;
         const status = this.value;
+        const wasDone = CURRENT_VIEW === 'completed';
+        const nowDone = status === 'Done';
+
         fetch(`/task/${id}/status`, {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: `status=${encodeURIComponent(status)}`
         }).then(res => res.json()).then(data => {
-            if (data.ok) {
-                this.className = 'status-select status-select-' + status.replace(' ', '').toLowerCase();
-            } else {
+            if (!data.ok) {
                 alert('Could not update status.');
+                return;
             }
+            if (wasDone !== nowDone) {
+                window.location.reload();
+                return;
+            }
+            this.className = 'status-select status-select-' + status.replace(' ', '').toLowerCase();
         });
     });
 });

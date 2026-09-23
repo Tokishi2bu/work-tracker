@@ -161,20 +161,34 @@ def normalize_date(value):
 # Core pages
 # ---------------------------------------------------------------------------
 
+ACTIVE_STATUSES = [s for s in STATUS_OPTIONS if s != "Done"]  # Yet to Start, WIP
+
+
 @app.route("/")
 def index():
-    status_filter = request.args.get("status", "All")
+    view = request.args.get("view", "active")
+    if view not in ("active", "completed"):
+        view = "active"
+
     search = request.args.get("q", "").strip()
     sort = request.args.get("sort", "date_desc")
     date_filter = request.args.get("date", "").strip()
     month_filter = request.args.get("month", "").strip()
+    checked_raw = request.args.getlist("status")
 
     query = "SELECT * FROM tasks WHERE 1=1"
     params = []
 
-    if status_filter in STATUS_OPTIONS:
+    if view == "completed":
         query += " AND status = ?"
-        params.append(status_filter)
+        params.append("Done")
+        checked_statuses = []  # not used in this view
+    else:
+        valid_checked = [s for s in checked_raw if s in ACTIVE_STATUSES]
+        checked_statuses = valid_checked if valid_checked else list(ACTIVE_STATUSES)
+        placeholders = ", ".join(["?"] * len(checked_statuses))
+        query += f" AND status IN ({placeholders})"
+        params.extend(checked_statuses)
 
     if search:
         query += " AND (name LIKE ? OR summary LIKE ? OR details LIKE ?)"
@@ -199,20 +213,21 @@ def index():
     conn = get_db()
     tasks = [row_to_dict(r) for r in conn.execute(query, params).fetchall()]
 
-    counts = {
-        "All": conn.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"],
-    }
+    counts = {}
     for s in STATUS_OPTIONS:
         counts[s] = conn.execute(
             "SELECT COUNT(*) c FROM tasks WHERE status = ?", (s,)
         ).fetchone()["c"]
+    counts["active"] = sum(counts[s] for s in ACTIVE_STATUSES)
     conn.close()
 
     return render_template(
         "index.html",
         tasks=tasks,
         statuses=STATUS_OPTIONS,
-        status_filter=status_filter,
+        active_statuses=ACTIVE_STATUSES,
+        view=view,
+        checked_statuses=checked_statuses,
         search=search,
         sort=sort,
         date_filter=date_filter,
